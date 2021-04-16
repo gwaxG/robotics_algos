@@ -14,6 +14,9 @@ class MotionModels:
         # noises
         self.a = [0.001 for i in range(6)]
 
+    def get_alpha(self):
+        return self.a
+
     def motion_model_velocity(self, x_, u, x):
         mu = 0.5
         mu *= ((x[0] - x_[0]) * np.cos(x[2]) + (x[1] - x_[1]) * np.sin(x[2]))

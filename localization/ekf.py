@@ -9,38 +9,95 @@ import numpy as np
 
 
 class EKF:
-    def __init__(self):
+    def __init__(self, alpha, dt=1):
+        self.alpha = alpha
+        self.dt = dt
         self.qt = np.array([[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.001]])
 
     def localization_with_known_correspondences(
             self,
-            mu,
-            sigma,
-            u_,
-            z_,
-            c_,
+            mut_1,
+            sigmat_1,
+            ut,
+            zt,
+            ct,
             m
     ):
         """
         The extended Kalman filter (EKF) localization algorithm, formulated here
         for a feature-based map and a robot equipped with sensors for measuring range and
         bearing. This version assumes knowledge of the exact correspondences (p. 204, Probabilistic Robotics)
-        The underscore _ denotes a time step t, its absence means the time step t-1.
-        :param mu: pose at previous step
-        :param sigma: variance at previous step
-        :param u_: taken action
-        :param z_: got observation
-        :param c_: correspondences of landmarks
+        The _t denotes a time step t, its absence means the time step t-1.
+        :param mut_1: pose at previous step
+        :param sigmat_1: variance at previous step
+        :param ut: taken action
+        :param zt: got observation
+        :param ct: correspondences of landmarks
         :param m: map (knowledge about coordinates of landmarks)
         :return:
         """
-        mu_ = []
-        sigma_ = []
-        pz_ = []
-        return mu_, sigma_, pz_
+        dt = self.dt
+        linear = False
+        vt, wt = ut
+        if wt == 0:
+            linear = True
+        theta = mut_1[2]
+        Gt = np.array([
+            [1, 0, -vt/wt*np.cos(theta) + vt/wt * np.cos(theta + wt*dt)],
+            [0, 1, -vt/wt*np.sin(theta) + vt/wt * np.sin(theta + wt*dt)],
+            [0, 0, 1],
+        ])
+        Vt = np.array([
+            [
+                (-np.sin(theta) + np.sin(theta+wt*dt)) / wt,
+                (np.sin(theta) - np.sin(theta+wt*dt)) * vt / wt ** 2 + np.cos(theta + wt * dt) * vt * dt / wt
+            ],
+            [
+                (np.cos(theta) - np.cos(theta + wt * dt)) / wt,
+                - (np.cos(theta) - np.cos(theta + wt * dt)) * vt / wt ** 2 + np.sin(theta + wt * dt) * vt * dt / wt
+            ],
+            [0, dt]
+        ])
+        Mt = np.array([
+            [self.alpha[0] * vt**2 + self.alpha[1] * wt ** 2, 0],
+            [0, self.alpha[2] * vt**2 + self.alpha[3] * wt ** 2]
+        ])
+        mut_hat = mut_1 + np.array([
+            -vt / wt * np.sin(theta) + vt * wt * np.sin(theta + wt * dt),
+            vt / wt * np.cos(theta) - vt * wt * np.cos(theta + wt * dt),
+            wt * dt
+        ])
+        sigmat_hat = Gt @ sigmat_1 @ Gt.T + Vt @ Mt @ Vt.T
+        Qt = self.qt
+        z_array = []
+        S_array = []
+        for i, zti in enumerate(zt):
+            j = ct[i]
+            mjx = m[j][0]
+            mjy = m[j][1]
+            q = (mjx - mut_hat[0]) ** 2 + (mjy - mut_hat[1]) ** 2
+            zti_hat = np.array([q ** 0.5, np.atan2(mjy - mut_hat[1], mjx - mut_hat[0]), i]).T
+            Hti = np.array([
+                [-(mjx - mut_hat[0])/q ** 0.5, -(mjy - mut_hat[1])/q ** 0.5, 0],
+                [(mjy - mut_hat[1])/q ** 0.5, -(mjx - mut_hat[0])/q ** 0.5, -1],
+                [0, 0, 0],
+            ])
+            Sti = Hti @ sigmat_hat @ Hti.T + Qt
+            Kti = sigmat_hat @ Hti.T @ Sti ** (-1)
+            mut_hat = mut_hat + Kti @ (zti - zti_hat)
+            sigmat_hat = (np.eye(3) - Kti @ Hti) @ sigmat_hat
+            z_array.append(zti_hat)
+            S_array.append(Sti)
+        mut = mut_hat
+        sigmat = sigmat_hat
+        pzt = 1
+        for i in range(len(zt)):
+            pzt *= np.linalg.det(2 * np.pi * S_array[i]) ** 0.5 * np.exp(-0.5 * (zt[i] - z_array[i]).T @ S_array[i] @ (zt[i] - z_array[i]))
+        return mut, sigmat, pzt
 
     def get_qt(self):
         return self.qt
+
 
 class Env:
     def __init__(self, x, y, th):
@@ -134,10 +191,10 @@ def run():
     x_ = initial_pose
     # environment
     env = Env(*initial_pose)
-    # localization algorithm
-    ekf = EKF()
     # motion model
     motion = MotionModels(dt=1, distribution="normal")
+    # localization algorithm
+    ekf = EKF(alpha=motion.get_alpha)
     # do for every command vector u
     cmds = commands()
     for i, u in enumerate(cmds):
@@ -159,4 +216,17 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    motion = MotionModels(dt=1, distribution="normal")
+    # localization algorithm
+    ekf = EKF(alpha=motion.get_alpha())
+    sigma_t = np.array([
+        [0.001, 0, 0],
+        [0, 0.001, 0],
+        [0, 0, 0.001],
+    ])
+    u = [0, 1]
+    zt = [[1, 1, 0]]
+    ct = [0]
+    m = [[2, 2]]
+    ekf.localization_with_known_correspondences([0, 0, 0], sigma_t, u, zt, ct, m)
+    # run()
