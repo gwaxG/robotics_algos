@@ -6,13 +6,16 @@ import random
 import time
 from motion import MotionModels
 import numpy as np
+import math
+from scipy.spatial.transform import Rotation as Rot
 
 
 class EKF:
-    def __init__(self, alpha, dt=1):
-        self.alpha = alpha
+    def __init__(self, motion, dt=1):
+        self.motion = motion
+        self.alpha = motion.get_alpha()
         self.dt = dt
-        self.qt = np.array([[0.001, 0, 0], [0, 0.001, 0], [0, 0, 0.001]])
+        self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
     def localization_with_known_correspondences(
             self,
@@ -37,36 +40,49 @@ class EKF:
         :return:
         """
         dt = self.dt
-        linear = False
         vt, wt = ut
-        if wt == 0:
-            linear = True
         theta = mut_1[2]
-        Gt = np.array([
-            [1, 0, -vt/wt*np.cos(theta) + vt/wt * np.cos(theta + wt*dt)],
-            [0, 1, -vt/wt*np.sin(theta) + vt/wt * np.sin(theta + wt*dt)],
-            [0, 0, 1],
-        ])
-        Vt = np.array([
-            [
-                (-np.sin(theta) + np.sin(theta+wt*dt)) / wt,
-                (np.sin(theta) - np.sin(theta+wt*dt)) * vt / wt ** 2 + np.cos(theta + wt * dt) * vt * dt / wt
-            ],
-            [
-                (np.cos(theta) - np.cos(theta + wt * dt)) / wt,
-                - (np.cos(theta) - np.cos(theta + wt * dt)) * vt / wt ** 2 + np.sin(theta + wt * dt) * vt * dt / wt
-            ],
-            [0, dt]
-        ])
+        Gt = self.motion.get_jacobian(mut_1, ut)
+        if wt != 0:
+            Vt = np.array([
+                [
+                    (-np.sin(theta) + np.sin(theta+wt*dt)) / wt,
+                    (np.sin(theta) - np.sin(theta+wt*dt)) * vt / wt ** 2 + np.cos(theta + wt * dt) * vt * dt / wt
+                ],
+                [
+                    (np.cos(theta) - np.cos(theta + wt * dt)) / wt,
+                    - (np.cos(theta) - np.cos(theta + wt * dt)) * vt / wt ** 2 + np.sin(theta + wt * dt) * vt * dt / wt
+                ],
+                [0, dt]
+            ])
+        else:
+            Vt = np.array([
+                [
+                    np.cos(theta),
+                    0
+                ],
+                [
+                    0,
+                    np.sin(theta)
+                ],
+                [0, 0]
+            ])
         Mt = np.array([
             [self.alpha[0] * vt**2 + self.alpha[1] * wt ** 2, 0],
             [0, self.alpha[2] * vt**2 + self.alpha[3] * wt ** 2]
         ])
-        mut_hat = mut_1 + np.array([
-            -vt / wt * np.sin(theta) + vt * wt * np.sin(theta + wt * dt),
-            vt / wt * np.cos(theta) - vt * wt * np.cos(theta + wt * dt),
-            wt * dt
-        ])
+        if wt != 0:
+            mut_hat = mut_1 + np.array([
+                -vt / wt * np.sin(theta) + vt / wt * np.sin(theta + wt * dt),
+                vt / wt * np.cos(theta) - vt / wt * np.cos(theta + wt * dt),
+                wt * dt
+            ])
+        else:
+            mut_hat = mut_1 + np.array([
+                vt * np.cos(theta),
+                vt * np.sin(theta),
+                0
+            ])
         sigmat_hat = Gt @ sigmat_1 @ Gt.T + Vt @ Mt @ Vt.T
         Qt = self.qt
         z_array = []
@@ -76,14 +92,14 @@ class EKF:
             mjx = m[j][0]
             mjy = m[j][1]
             q = (mjx - mut_hat[0]) ** 2 + (mjy - mut_hat[1]) ** 2
-            zti_hat = np.array([q ** 0.5, np.atan2(mjy - mut_hat[1], mjx - mut_hat[0]), i]).T
+            zti_hat = np.array([q ** 0.5, np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]), i]).T
             Hti = np.array([
                 [-(mjx - mut_hat[0])/q ** 0.5, -(mjy - mut_hat[1])/q ** 0.5, 0],
                 [(mjy - mut_hat[1])/q ** 0.5, -(mjx - mut_hat[0])/q ** 0.5, -1],
                 [0, 0, 0],
             ])
             Sti = Hti @ sigmat_hat @ Hti.T + Qt
-            Kti = sigmat_hat @ Hti.T @ Sti ** (-1)
+            Kti = sigmat_hat @ Hti.T @ np.linalg.inv(Sti)
             mut_hat = mut_hat + Kti @ (zti - zti_hat)
             sigmat_hat = (np.eye(3) - Kti @ Hti) @ sigmat_hat
             z_array.append(zti_hat)
@@ -117,12 +133,17 @@ class Env:
         self.path_dead = []
         # estimated path
         self.path_est = []
+        # path points
+        self.points = []
         # landmarks
         self.landmarks = []
         for i in range(3):
             x_ = random.randint(10, self.size[0] - 10)
             y_ = random.randint(10, self.size[1] - 10)
             self.landmarks.append((x_, y_))
+
+    def get_landmarks(self):
+        return self.landmarks
 
     def get_empty_scene(self):
         """
@@ -144,10 +165,9 @@ class Env:
         cv2.line(img, center, end, (255, 255, 255), 4)
         return img
 
-    def draw_path(self, img, path, color):
-        path = np.array(path).T
-        curve = np.column_stack((path[0].astype(np.int32), path[1].astype(np.int32)))
-        cv2.polylines(img, [curve], False, color)
+    def draw_points(self, img):
+        for p in self.points:
+            img = cv2.circle(img, p, 2, (100, 100, 100), -1)
         return img
 
     def draw_landmarks(self, img):
@@ -155,15 +175,67 @@ class Env:
             cv2.circle(img, landmark, 3, (255, 0, 0), -1)
         return img
 
-    def draw_position_estimation(self):
-        # draw ellipse around the robot
-        pass
+    def draw_position_estimation(self, img, x, sigma):
+        radius = 15
+        center = (int(x[0]), int(x[1]))
+        color = (0, 0, 0)
+        cv2.circle(img, center, radius, color, -1)
+        end = (
+            int(center[0] + radius * np.cos(x[2])),
+            int(center[1] + radius * np.sin(x[2]))
+        )
+        cv2.line(img, center, end, (255, 255, 255), 1)
 
-    def get_observations(self, p, qt):
+        # covariance ellipse
+        a = sigma[0][0]
+        b = sigma[0][1]
+        c = sigma[1][1]
+        l1 = (a + c) / 2 + (0.25 * (a - c)**2 + b ** 2) ** 0.5
+        l2 = (a + c) / 2 - (0.25 * (a - c) ** 2 + b ** 2) ** 0.5
+        if b == 0 and a >= c:
+            angle = 0
+        elif b == 0 and a < c:
+            angle = np.pi / 2
+        else:
+            angle = np.arctan2(l1-a, b)
+        print(l1)
+        img = cv2.ellipse(
+            img=img,
+            center=center,
+            axes=(int(l1), int(l2)),
+            angle=angle*180/3.14,
+            startAngle=0.,
+            endAngle=360.,
+            color=(0, 0, 255),
+            thickness=1
+        )
+        return img
+
+    def add_point(self, p):
+        self.points.append((int(p[0]), int(p[1])))
+
+    def draw_label(self, img, i, l):
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (550, 50)
+        fontScale = 1
+        fontColor = (255, 0, 0)
+        lineType = 2
+
+        cv2.putText(img, str(i)+"/"+str(l),
+                    bottomLeftCornerOfText,
+                    font,
+                    fontScale,
+                    fontColor,
+                    lineType)
+        return img
+
+    def get_observations(self, qt):
+        p = self.robot_pose
         z = []
+        # precision of distance measurement
         for i, lm in enumerate(self.landmarks):
-            r = ((lm[0]-p[0])**2+(lm[1]-p[1])**2) ** 0.5 + np.random.normal(0, qt[0][0])
-            phi = np.atan2((lm[1]-p[1]), (lm[0]-p[0])) - p[2] + np.random.normal(0, qt[1][1])
+            r = ((lm[0]-p[0])**2+(lm[1]-p[1])**2) ** 0.5 + np.random.normal(0, qt[0][0]**0.5)
+            phi = np.arctan2((lm[1]-p[1]), (lm[0]-p[0])) - p[2] + np.random.normal(0, qt[1][1]**0.5)
             z.append([r, phi, i])
         return z
 
@@ -185,48 +257,52 @@ def commands():
 
 
 def run():
+    # initialization
     initial_pose = [100, 100, 0]
-    # robot pose x_t-1 and robot pose x_t
+    # pose estimate
+    mu = initial_pose
+    # real pose
     x = initial_pose
-    x_ = initial_pose
+    sigma = np.array([
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 0.1],
+    ])
     # environment
     env = Env(*initial_pose)
     # motion model
     motion = MotionModels(dt=1, distribution="normal")
     # localization algorithm
-    ekf = EKF(alpha=motion.get_alpha)
-    # do for every command vector u
+    ekf = EKF(motion)
+    # command list
     cmds = commands()
+    # correspondences of 3 landmarks
+    c = [0, 1, 2]
+    # map
+    m = env.get_landmarks()
+    # iterate over command list
     for i, u in enumerate(cmds):
-        # localization
+        # Move and observe.
         qt = ekf.get_qt()
-        z = env.get_observations(x, qt)
-        x_ = motion.sample_motion_model_velocity(u, x)
-        env.set_pose(x_)
-        # visualization
+        x = motion.sample_motion_model_velocity(u, x)
+        env.set_pose(x)
+        z = env.get_observations(qt)
+        # estimate pose
+        mu, sigma, p_t = ekf.localization_with_known_correspondences(mu, sigma, u, z, c, m)
+        env.add_point(mu[:2])
+        # Visualize
         scene = env.get_empty_scene()
         scene = env.draw_landmarks(scene)
         scene = env.draw_robot(scene)
+        scene = env.draw_position_estimation(scene, mu, sigma)
+        scene = env.draw_label(scene, i, len(cmds))
+        scene = env.draw_points(scene)
         cv2.imshow('scene', scene)
         cv2.waitKey(1)
-        print(f"{i}/{len(cmds)}  moved  to  {[int(x_[0]), int(x_[1])]} under {u} from {[int(x[0]), int(x[1])]}")
+        # print(((x[0]-mu[0])**2 + (x[1]-mu[1])**2)**0.5)
         time.sleep(0.01)
         # reassigning current state
-        x = x_
 
 
 if __name__ == "__main__":
-    motion = MotionModels(dt=1, distribution="normal")
-    # localization algorithm
-    ekf = EKF(alpha=motion.get_alpha())
-    sigma_t = np.array([
-        [0.001, 0, 0],
-        [0, 0.001, 0],
-        [0, 0, 0.001],
-    ])
-    u = [0, 1]
-    zt = [[1, 1, 0]]
-    ct = [0]
-    m = [[2, 2]]
-    ekf.localization_with_known_correspondences([0, 0, 0], sigma_t, u, zt, ct, m)
-    # run()
+    run()

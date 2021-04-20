@@ -2,6 +2,10 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="9c48aa81-1e3b-4b8a-b863-a41079cf3265" name="Default Changelist" comment="">
+      <change afterPath="$PROJECT_DIR$/.idea/libraries/ROS.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/libraries/workspace.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/ros.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/robotics_algos.iml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/robotics_algos.iml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/localization/ekf.py" beforeDir="false" afterPath="$PROJECT_DIR$/localization/ekf.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/localization/motion.py" beforeDir="false" afterPath="$PROJECT_DIR$/localization/motion.py" afterDir="false" />
