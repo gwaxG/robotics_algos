@@ -12,7 +12,7 @@ class MotionModels:
         self.dt = dt
         self.distribution = distribution
         # noises
-        self.a = [0.001 for i in range(6)]
+        self.a = [0.0005 for i in range(6)]
 
     def get_alpha(self):
         return self.a
@@ -43,11 +43,13 @@ class MotionModels:
     def prob_triangular_distribution(self, a, b2):
         return triang(a, b2).pdf(0)
 
-    def sample_motion_model_velocity(self, u, x):
+    def circular_movement(self, x, u):
         if self.distribution == "normal":
             sample = self.sample_normal_distribution
         elif self.distribution == "triangular":
             sample = self.sample_triangular_distribution
+        else:
+            raise(NotImplemented())
         v_hat = u[0] + sample(self.a[0] * u[0]**2 + self.a[1] * u[1]**2)
         w_hat = u[1] + sample(self.a[2] * u[0] ** 2 + self.a[3] * u[1] ** 2)
         gamma_hat = sample(self.a[4] * u[0] ** 2 + self.a[5] * u[1] ** 2)
@@ -59,6 +61,53 @@ class MotionModels:
         x_[1] = x[1] + v_hat / w_hat * np.cos(x[2]) - v_hat / w_hat * np.cos(x[2] + w_hat * self.dt)
         x_[2] = x[2] + w_hat * self.dt + gamma_hat * self.dt
         return x_
+
+    def linear_movement(self, x, u):
+        if self.distribution == "normal":
+            sample = self.sample_normal_distribution
+        elif self.distribution == "triangular":
+            sample = self.sample_triangular_distribution
+        else:
+            raise(NotImplemented())
+        v_hat = u[0] + sample(self.a[0] * u[0]**2)
+        gamma_hat = sample(self.a[4] * u[0] ** 2 + self.a[5] * u[1] ** 2)
+
+        x_ = [
+            x[0] - v_hat * np.sin(x[2]),
+            x[1] + v_hat * np.cos(x[2]),
+            x[2] + gamma_hat * self.dt
+        ]
+        return x_
+
+    def circular_movement_jacobian(self, x, u):
+        theta = x[2]
+        vt, wt = u
+        return np.array([
+            [1, 0, -vt / wt * np.cos(theta) + vt / wt * np.cos(theta + wt * self.dt)],
+            [0, 1, -vt / wt * np.sin(theta) + vt / wt * np.sin(theta + wt * self.dt)],
+            [0, 0, 1],
+        ])
+
+    def linear_movement_jacobian(self, x, u):
+        vt, wt = u
+        theta = x[2]
+        return np.array([
+            [1, 0, vt * np.cos(theta)],
+            [0, 1, vt * np.sin(theta)],
+            [0, 0, 1],
+        ])
+
+    def get_jacobian(self, x, u):
+        if u[1] != 0:
+            return self.circular_movement_jacobian(x, u)
+        else:
+            return self.linear_movement_jacobian(x, u)
+
+    def sample_motion_model_velocity(self, x, u):
+        if u[1] != 0:
+            return self.circular_movement(u, x)
+        else:
+            return self.linear_movement(u, x)
 
     def sample_normal_distribution(self, b2):
         b = b2 ** 0.5
