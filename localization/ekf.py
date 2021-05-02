@@ -229,4 +229,3 @@ if __name__ == "__main__":
     ct = [0]
     m = [[2, 2]]
     ekf.localization_with_known_correspondences([0, 0, 0], sigma_t, u, zt, ct, m)
-    # run()
