@@ -16,8 +16,8 @@ class EKF:
         self.alpha = motion.get_alpha()
         self.dt = dt
         self.qt = np.diag([
-            5.,
-            np.deg2rad(1.0),  # variance of yaw angle
+            39.,
+            np.deg2rad(4.0),  # variance of yaw angle
             1
         ]) ** 2
         # self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
@@ -92,13 +92,13 @@ class EKF:
             zti_hat = np.array(
                 [
                     q ** 0.5,
-                    np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]) - mut_hat[2],
+                    np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]), #  - mut_hat[2]
                     i
                 ]
             ).T
             Hti = np.array([
                 [-(mjx - mut_hat[0])/q ** 0.5, -(mjy - mut_hat[1])/q ** 0.5, 0],
-                [(mjy - mut_hat[1])/q, -(mjx - mut_hat[0])/q, -1],
+                [(mjy - mut_hat[1])/q, -(mjx - mut_hat[0])/q, 0],
                 [0, 0, 0],
             ])
             Sti = Hti @ sigmat_hat @ Hti.T + Qt
@@ -140,9 +140,9 @@ class Env:
         self.measurment_points = []
         # landmarks
         self.landmarks = []
-        for i in range(3):
-            x_ = random.randint(10, self.size[0] - 10)
-            y_ = random.randint(10, self.size[1] - 10)
+        for i in range(1):
+            x_ = np.clip(random.randint(10, self.size[0] - 10), 500, 700)
+            y_ = np.clip(random.randint(10, self.size[1] - 10), 500, 700)
             self.landmarks.append((x_, y_))
 
     def get_landmarks(self):
@@ -212,7 +212,6 @@ class Env:
             angle = np.pi / 2
         else:
             angle = np.arctan2(l1-a, b)
-
         img = cv2.ellipse(
             img=img,
             center=center,
@@ -293,9 +292,9 @@ def run():
     # real pose
     x = initial_pose
     sigma = np.array([
-        [1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 0.1],
+        [1000, 0, 0],
+        [0, 1000, 0],
+        [0, 0, 1000],
     ])
     # environment
     env = Env(*initial_pose)
@@ -306,7 +305,7 @@ def run():
     # command list
     cmds = commands()
     # correspondences of 3 landmarks
-    c = [0, 1, 2]
+    c = [i for i in range(len(env.get_landmarks()))]
     # map
     m = env.get_landmarks()
     # iterate over command list
