@@ -24,6 +24,8 @@ class Env:
         self.points = []
         # lines from robot to landmark
         self.lines = []
+        # real robot path
+        self.path = []
         # measurment points
         self.measurment_points = []
         # landmarks
@@ -63,6 +65,8 @@ class Env:
         return img
 
     def draw_points(self, img):
+        for p in self.path:
+            img = cv2.circle(img, p, 2, (100, 0, 0), -1)
         for p in self.points:
             img = cv2.circle(img, p, 2, (100, 100, 100), -1)
         for j in self.measurment_points:
@@ -160,6 +164,7 @@ class Env:
         return z
 
     def set_pose(self, pose):
+        self.path.append((int(pose[0]), int(pose[1])))
         self.robot_pose = [int(pose[0]), int(pose[1]), pose[2]]
 
     def draw_step(self, i, l, mu, sigma):

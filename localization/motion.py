@@ -12,7 +12,7 @@ class MotionModels:
         self.dt = dt
         self.distribution = distribution
         # noises
-        self.a = [0.0001 for i in range(6)]
+        self.a = [0.001 for i in range(6)]
 
     def get_alpha(self):
         return self.a

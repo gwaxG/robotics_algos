@@ -11,7 +11,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 
-class EKF:
+class UKF:
     def __init__(self, motion, dt=1.0):
         self.motion = motion
         self.alpha = motion.get_alpha()
@@ -23,17 +23,16 @@ class EKF:
         ]) ** 2
         # self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
-    def localization_with_known_correspondences(self, mut_1, sigmat_1, ut, zt, ct, m):
+    def localization_with_known_correspondences(self, mut_1, sigmat_1, ut, zt, m):
         """
-        The extended Kalman filter (EKF) localization algorithm, formulated here
+        The unscented Kalman filter (EKF) localization algorithm, formulated here
         for a feature-based map and a robot equipped with sensors for measuring range and
-        bearing. This version assumes knowledge of the exact correspondences (p. 204, Probabilistic Robotics)
+        bearing. This version assumes knowledge of the exact correspondences (p. 221, Probabilistic Robotics)
         The _t denotes a time step t, its absence means the time step t-1.
         :param mut_1: pose at previous step
         :param sigmat_1: variance at previous step
         :param ut: taken action
         :param zt: got observation
-        :param ct: correspondences of landmarks
         :param m: map (knowledge about coordinates of landmarks)
         :return:
         """
@@ -155,15 +154,13 @@ def main():
     # motion model
     motion = MotionModels(dt, distribution="normal")
     # localization algorithm
-    ekf = EKF(motion, dt)
+    ukf = UKF(motion, dt)
     # observation noise
-    qt = ekf.get_qt()
+    qt = ukf.get_qt()
     # environment
     env = Env(*initial_pose, landmarks_num=landmarks_num, qt=qt)
     # command list
     cmds = commands()
-    # correspondences of sys.argv[1] landmarks
-    c = [i for i in range(len(env.get_landmarks()))]
     # map
     m = env.get_landmarks()
     # iterate over command list
@@ -171,9 +168,9 @@ def main():
         # Move and observe.
         x = motion.sample_motion_model_velocity(u, x)
         env.set_pose(x)
-        z = env.get_observations()
+        z = env.get_observations()[:2]  # no need of correspondences
         # Estimate pose.
-        mu, sigma, p_t = ekf.localization_with_known_correspondences(mu, sigma, u, z, c, m)
+        mu, sigma, p_t = ukf.localization_with_known_correspondences(mu, sigma, u, z, m)
         # Visualize
         env.draw_step(i, len(cmds), mu, sigma)
 
