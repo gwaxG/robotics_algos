@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 import cv2
+import sys
 import random
 import time
 from motion import MotionModels
@@ -16,8 +17,8 @@ class EKF:
         self.alpha = motion.get_alpha()
         self.dt = dt
         self.qt = np.diag([
-            39.,
-            np.deg2rad(4.0),  # variance of yaw angle
+            30.,
+            np.deg2rad(10.0),  # variance of yaw angle
             1
         ]) ** 2
         # self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
@@ -76,8 +77,8 @@ class EKF:
             ])
         else:
             mut_hat = mut_1 + np.array([
-                vt * np.cos(theta),
-                vt * np.sin(theta),
+                vt * np.cos(theta) * dt,
+                vt * np.sin(theta) * dt,
                 0
             ])
         sigmat_hat = Gt @ sigmat_1 @ Gt.T + Vt @ Mt @ Vt.T
@@ -92,13 +93,13 @@ class EKF:
             zti_hat = np.array(
                 [
                     q ** 0.5,
-                    np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]), #  - mut_hat[2]
+                    np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]) - mut_hat[2],  # -theta
                     i
                 ]
             ).T
             Hti = np.array([
                 [-(mjx - mut_hat[0])/q ** 0.5, -(mjy - mut_hat[1])/q ** 0.5, 0],
-                [(mjy - mut_hat[1])/q, -(mjx - mut_hat[0])/q, 0],
+                [(mjy - mut_hat[1])/q, -(mjx - mut_hat[0])/q, -1],
                 [0, 0, 0],
             ])
             Sti = Hti @ sigmat_hat @ Hti.T + Qt
@@ -121,7 +122,7 @@ class EKF:
         self.qt = qt
 
 class Env:
-    def __init__(self, x, y, th):
+    def __init__(self, x, y, th, landmarks_num):
         # size of the field
         self.size = [700, 700]
         # starting robot pose
@@ -140,9 +141,9 @@ class Env:
         self.measurment_points = []
         # landmarks
         self.landmarks = []
-        for i in range(1):
-            x_ = np.clip(random.randint(10, self.size[0] - 10), 500, 700)
-            y_ = np.clip(random.randint(10, self.size[1] - 10), 500, 700)
+        for i in range(landmarks_num):
+            x_ = np.clip(random.randint(10, self.size[0] - 10), 0, 700)
+            y_ = np.clip(random.randint(10, self.size[1] - 10), 600, 700)
             self.landmarks.append((x_, y_))
 
     def get_landmarks(self):
@@ -267,6 +268,7 @@ class Env:
                     )
                 ]
             )
+            phi = phi - p[2]  # -theta
             z.append([r, phi, i])
         return z
 
@@ -278,12 +280,23 @@ def commands():
     :return: list of commands
     """
     u = []
-    for i in range(600):
-        u.append([10, 0.1])
+    for i in range(100):
+        u.append([10, 0.0])
+    for i in range(200):
+        u.append([0, 0.1])
+    for i in range(100):
+        u.append([10, 0.])
+    for i in range(200):
+        u.append([10, 0.2])
     return u
 
 
 def run():
+    try:
+        landmarks_num = int(sys.argv[1])
+    except Exception:
+        print("Enter number of landmarks.")
+        exit(1)
     dt = 0.1
     # initialization
     initial_pose = [400, 200, 0]
@@ -292,12 +305,12 @@ def run():
     # real pose
     x = initial_pose
     sigma = np.array([
-        [1000, 0, 0],
-        [0, 1000, 0],
-        [0, 0, 1000],
+        [10, 0, 0],
+        [0, 10, 0],
+        [0, 0, 10],
     ])
     # environment
-    env = Env(*initial_pose)
+    env = Env(*initial_pose, landmarks_num=landmarks_num)
     # motion model
     motion = MotionModels(dt, distribution="normal")
     # localization algorithm

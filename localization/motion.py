@@ -74,12 +74,11 @@ class MotionModels:
         else:
             raise(NotImplemented())
         v_hat = u[0] + sample(self.a[0] * u[0]**2)
-        gamma_hat = sample(self.a[4] * u[0] ** 2 + self.a[5] * u[1] ** 2)
 
         x_ = [
-            x[0] - v_hat * np.sin(x[2]),
-            x[1] + v_hat * np.cos(x[2]),
-            x[2] + gamma_hat * self.dt
+            x[0] + v_hat * np.cos(x[2]),
+            x[1] + v_hat * np.sin(x[2]),
+            x[2]
         ]
         return x_
 
@@ -96,8 +95,8 @@ class MotionModels:
         vt, wt = u
         theta = x[2]
         return np.array([
-            [1, 0, vt * np.cos(theta)],
-            [0, 1, vt * np.sin(theta)],
+            [1, 0, -vt * np.sin(theta)],
+            [0, 1, vt * np.cos(theta)],
             [0, 0, 1],
         ])
 
