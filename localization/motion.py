@@ -12,7 +12,7 @@ class MotionModels:
         self.dt = dt
         self.distribution = distribution
         # noises
-        self.a = [0.0005 for i in range(6)]
+        self.a = [0.0001 for i in range(6)]
 
     def get_alpha(self):
         return self.a
@@ -60,6 +60,10 @@ class MotionModels:
         x_[0] = x[0] - v_hat / w_hat * np.sin(x[2]) + v_hat / w_hat * np.sin(x[2] + w_hat * self.dt)
         x_[1] = x[1] + v_hat / w_hat * np.cos(x[2]) - v_hat / w_hat * np.cos(x[2] + w_hat * self.dt)
         x_[2] = x[2] + w_hat * self.dt + gamma_hat * self.dt
+        #if x_[2] > np.pi:
+        #    x_[2] = -np.pi + (x_[2] - np.pi)
+        #if x_[2] < -np.pi:
+        #    x_[2] = np.pi + (x_[2] + np.pi)
         return x_
 
     def linear_movement(self, x, u):

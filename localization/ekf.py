@@ -11,21 +11,18 @@ from scipy.spatial.transform import Rotation as Rot
 
 
 class EKF:
-    def __init__(self, motion, dt=1):
+    def __init__(self, motion, dt=1.0):
         self.motion = motion
         self.alpha = motion.get_alpha()
         self.dt = dt
-        self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        self.qt = np.diag([
+            5.,
+            np.deg2rad(1.0),  # variance of yaw angle
+            1
+        ]) ** 2
+        # self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
-    def localization_with_known_correspondences(
-            self,
-            mut_1,
-            sigmat_1,
-            ut,
-            zt,
-            ct,
-            m
-    ):
+    def localization_with_known_correspondences(self, mut_1, sigmat_1, ut, zt, ct, m):
         """
         The extended Kalman filter (EKF) localization algorithm, formulated here
         for a feature-based map and a robot equipped with sensors for measuring range and
@@ -92,10 +89,16 @@ class EKF:
             mjx = m[j][0]
             mjy = m[j][1]
             q = (mjx - mut_hat[0]) ** 2 + (mjy - mut_hat[1]) ** 2
-            zti_hat = np.array([q ** 0.5, np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]), i]).T
+            zti_hat = np.array(
+                [
+                    q ** 0.5,
+                    np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]) - mut_hat[2],
+                    i
+                ]
+            ).T
             Hti = np.array([
                 [-(mjx - mut_hat[0])/q ** 0.5, -(mjy - mut_hat[1])/q ** 0.5, 0],
-                [(mjy - mut_hat[1])/q ** 0.5, -(mjx - mut_hat[0])/q ** 0.5, -1],
+                [(mjy - mut_hat[1])/q, -(mjx - mut_hat[0])/q, -1],
                 [0, 0, 0],
             ])
             Sti = Hti @ sigmat_hat @ Hti.T + Qt
@@ -114,6 +117,8 @@ class EKF:
     def get_qt(self):
         return self.qt
 
+    def set_qt(self, qt):
+        self.qt = qt
 
 class Env:
     def __init__(self, x, y, th):
@@ -127,14 +132,12 @@ class Env:
         self.robot_pose = initial_pose
         # command vector
         self.u = [0, 0]
-        # true path
-        self.path_true = []
-        # dead reckoning path
-        self.path_dead = []
-        # estimated path
-        self.path_est = []
         # path points
         self.points = []
+        # lines from robot to landmark
+        self.lines = []
+        # measurment points
+        self.measurment_points = []
         # landmarks
         self.landmarks = []
         for i in range(3):
@@ -153,6 +156,12 @@ class Env:
         img[:] = 255
         return img
 
+    def draw_lines_from_robot(self, img):
+        for line in self.lines:
+            cv2.line(img, line[0], line[1], (55, 55, 0), 1)
+        self.lines = []
+        return img
+
     def draw_robot(self, img):
         radius = 20
         center = (self.robot_pose[0], self.robot_pose[1])
@@ -168,11 +177,16 @@ class Env:
     def draw_points(self, img):
         for p in self.points:
             img = cv2.circle(img, p, 2, (100, 100, 100), -1)
+        for j in self.measurment_points:
+            img = cv2.circle(img, j, 1, (100, 0, 0), -1)
         return img
 
     def draw_landmarks(self, img):
-        for landmark in self.landmarks:
-            cv2.circle(img, landmark, 3, (255, 0, 0), -1)
+        for i, landmark in enumerate(self.landmarks):
+            if i == 0:
+                cv2.circle(img, landmark, 3, (255, 0, 255), -1)
+            else:
+                cv2.circle(img, landmark, 3, (255, 0, 0), -1)
         return img
 
     def draw_position_estimation(self, img, x, sigma):
@@ -198,7 +212,7 @@ class Env:
             angle = np.pi / 2
         else:
             angle = np.arctan2(l1-a, b)
-        print(l1)
+
         img = cv2.ellipse(
             img=img,
             center=center,
@@ -212,6 +226,7 @@ class Env:
         return img
 
     def add_point(self, p):
+        # add a path point
         self.points.append((int(p[0]), int(p[1])))
 
     def draw_label(self, img, i, l):
@@ -235,7 +250,24 @@ class Env:
         # precision of distance measurement
         for i, lm in enumerate(self.landmarks):
             r = ((lm[0]-p[0])**2+(lm[1]-p[1])**2) ** 0.5 + np.random.normal(0, qt[0][0]**0.5)
-            phi = np.arctan2((lm[1]-p[1]), (lm[0]-p[0])) - p[2] + np.random.normal(0, qt[1][1]**0.5)
+            phi = np.arctan2((lm[1]-p[1]), (lm[0]-p[0])) + np.random.normal(0, qt[1][1]**0.5)
+            point = (
+                int(lm[0] - r * np.cos(phi)),
+                int(lm[1] - r * np.sin(phi))
+            )
+            self.measurment_points.append(point)
+            self.lines.append(
+                [
+                    (
+                        int(p[0]),
+                        int(p[1])
+                    ),
+                    (
+                        int(p[0] + r * np.cos(phi)),
+                        int(p[1] + r * np.sin(phi))
+                    )
+                ]
+            )
             z.append([r, phi, i])
         return z
 
@@ -247,18 +279,15 @@ def commands():
     :return: list of commands
     """
     u = []
-    for i in range(150):
-        u.append([1, 0.01])
-    for i in range(300):
-        u.append([1, 0])
-    for i in range(150):
-        u.append([1, -0.01])
+    for i in range(600):
+        u.append([10, 0.1])
     return u
 
 
 def run():
+    dt = 0.1
     # initialization
-    initial_pose = [100, 100, 0]
+    initial_pose = [400, 200, 0]
     # pose estimate
     mu = initial_pose
     # real pose
@@ -271,9 +300,9 @@ def run():
     # environment
     env = Env(*initial_pose)
     # motion model
-    motion = MotionModels(dt=1, distribution="normal")
+    motion = MotionModels(dt, distribution="normal")
     # localization algorithm
-    ekf = EKF(motion)
+    ekf = EKF(motion, dt)
     # command list
     cmds = commands()
     # correspondences of 3 landmarks
@@ -283,6 +312,7 @@ def run():
     # iterate over command list
     for i, u in enumerate(cmds):
         # Move and observe.
+        scene = env.get_empty_scene()
         qt = ekf.get_qt()
         x = motion.sample_motion_model_velocity(u, x)
         env.set_pose(x)
@@ -291,34 +321,17 @@ def run():
         mu, sigma, p_t = ekf.localization_with_known_correspondences(mu, sigma, u, z, c, m)
         env.add_point(mu[:2])
         # Visualize
-        scene = env.get_empty_scene()
         scene = env.draw_landmarks(scene)
         scene = env.draw_robot(scene)
+        scene = env.draw_lines_from_robot(scene)
         scene = env.draw_position_estimation(scene, mu, sigma)
         scene = env.draw_label(scene, i, len(cmds))
         scene = env.draw_points(scene)
         cv2.imshow('scene', scene)
-        cv2.waitKey(1)
-        # print(((x[0]-mu[0])**2 + (x[1]-mu[1])**2)**0.5)
         time.sleep(0.01)
-        # reassigning current state
+        cv2.waitKey(1)
 
 
 if __name__ == "__main__":
-<<<<<<< HEAD
-    motion = MotionModels(dt=1, distribution="normal")
-    # localization algorithm
-    ekf = EKF(alpha=motion.get_alpha())
-    sigma_t = np.array([
-        [0.001, 0, 0],
-        [0, 0.001, 0],
-        [0, 0, 0.001],
-    ])
-    u = [0, 1]
-    zt = [[1, 1, 0]]
-    ct = [0]
-    m = [[2, 2]]
-    ekf.localization_with_known_correspondences([0, 0, 0], sigma_t, u, zt, ct, m)
-=======
     run()
->>>>>>> 824b0a835288c1013c0851424b8edcd3e5def2fa
+
