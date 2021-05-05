@@ -135,7 +135,7 @@ class Env:
                     lineType)
         return img
 
-    def get_observations(self):
+    def get_observations(self, without_correspondences=False):
         p = self.robot_pose
         z = []
         # precision of distance measurement
@@ -160,7 +160,10 @@ class Env:
                 ]
             )
             phi = phi - p[2]  # -theta
-            z.append([r, phi, i])
+            if without_correspondences:
+                z.append([r, phi])
+            else:
+                z.append([r, phi, i])
         return z
 
     def set_pose(self, pose):

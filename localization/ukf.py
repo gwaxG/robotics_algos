@@ -5,25 +5,79 @@ import cv2
 import sys
 import random
 import time
+from scipy.linalg import cholesky
 from feature_env import Env
 from motion import MotionModels
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 
+class SigmaPoints:
+    def __init__(self, n, alpha=0.1, beta=2., kappa=1.):
+        self.n = n
+        self.alpha = alpha
+        self.beta = beta
+        self.kappa = kappa
+        self.sqrt = cholesky
+        self.subtract = np.subtract
+        self._compute_weights()
+
+    def sigma_points(self, x, P):
+
+        if self.n != np.size(x):
+            raise ValueError("expected size(x) {}, but size is {}".format(
+                self.n, np.size(x)))
+
+        n = self.n
+
+        if np.isscalar(x):
+            x = np.asarray([x])
+
+        if  np.isscalar(P):
+            P = np.eye(n)*P
+        else:
+            P = np.atleast_2d(P)
+
+        lambda_ = self.alpha**2 * (n + self.kappa) - n
+        U = self.sqrt((lambda_ + n)*P)
+
+        sigmas = np.zeros((2*n+1, n))
+        sigmas[0] = x
+        for k in range(n):
+            sigmas[k+1] = self.subtract(x, -U[k])
+            sigmas[n+k+1] = self.subtract(x, U[k])
+
+        return sigmas
+
+    def _compute_weights(self):
+        n = self.n
+        lambda_ = self.alpha ** 2 * (n + self.kappa) - n
+        c = .5 / (n + lambda_)
+        self.Wc = np.full(2 * n + 1, c)
+        self.Wm = np.full(2 * n + 1, c)
+        self.Wc[0] = lambda_ / (n + lambda_) + (1 - self.alpha ** 2 + self.beta)
+        self.Wm[0] = lambda_ / (n + lambda_)
+
+
 class UKF:
     def __init__(self, motion, dt=1.0):
+        L = 7  # state, control and observation dimensions
+        self.sigmas = SigmaPoints(L)
         self.motion = motion
         self.alpha = motion.get_alpha()
         self.dt = dt
         self.qt = np.diag([
             10.,
-            np.deg2rad(1.0),  # variance of yaw angle
-            1
+            np.deg2rad(1.0)
         ]) ** 2
-        # self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
 
-    def localization_with_known_correspondences(self, mut_1, sigmat_1, ut, zt, m):
+    def get_sigma(self, sigma_t, m_t, q_t):
+        z1 = np.zeros((len(sigma_t), len(sigma_t)), dtype=float)
+        z2 = np.zeros((len(m_t), len(m_t)), dtype=float)
+        z3 = np.zeros((len(q_t), len(q_t)), dtype=float)
+        return np.asarray(np.bmat([[sigma_t, z2, z3], [z1, m_t, z3], [z1, z2, q_t]]))
+
+    def localization(self, mut_1, sigmat_1, ut, zt, m):
         """
         The unscented Kalman filter (EKF) localization algorithm, formulated here
         for a feature-based map and a robot equipped with sensors for measuring range and
@@ -39,31 +93,6 @@ class UKF:
         dt = self.dt
         vt, wt = ut
         theta = mut_1[2]
-        Gt = self.motion.get_jacobian(mut_1, ut)
-        if wt != 0:
-            Vt = np.array([
-                [
-                    (-np.sin(theta) + np.sin(theta+wt*dt)) / wt,
-                    (np.sin(theta) - np.sin(theta+wt*dt)) * vt / wt ** 2 + np.cos(theta + wt * dt) * vt * dt / wt
-                ],
-                [
-                    (np.cos(theta) - np.cos(theta + wt * dt)) / wt,
-                    - (np.cos(theta) - np.cos(theta + wt * dt)) * vt / wt ** 2 + np.sin(theta + wt * dt) * vt * dt / wt
-                ],
-                [0, dt]
-            ])
-        else:
-            Vt = np.array([
-                [
-                    np.cos(theta),
-                    0
-                ],
-                [
-                    0,
-                    np.sin(theta)
-                ],
-                [0, 0]
-            ])
         Mt = np.array([
             [self.alpha[0] * vt**2 + self.alpha[1] * wt ** 2, 0],
             [0, self.alpha[2] * vt**2 + self.alpha[3] * wt ** 2]
@@ -80,38 +109,18 @@ class UKF:
                 vt * np.sin(theta) * dt,
                 0
             ])
-        sigmat_hat = Gt @ sigmat_1 @ Gt.T + Vt @ Mt @ Vt.T
         Qt = self.qt
-        z_array = []
-        S_array = []
-        for i, zti in enumerate(zt):
-            j = ct[i]
-            mjx = m[j][0]
-            mjy = m[j][1]
-            q = (mjx - mut_hat[0]) ** 2 + (mjy - mut_hat[1]) ** 2
-            zti_hat = np.array(
-                [
-                    q ** 0.5,
-                    np.arctan2(mjy - mut_hat[1], mjx - mut_hat[0]) - mut_hat[2],  # -theta
-                    i
-                ]
-            ).T
-            Hti = np.array([
-                [-(mjx - mut_hat[0])/q ** 0.5, -(mjy - mut_hat[1])/q ** 0.5, 0],
-                [(mjy - mut_hat[1])/q, -(mjx - mut_hat[0])/q, -1],
-                [0, 0, 0],
-            ])
-            Sti = Hti @ sigmat_hat @ Hti.T + Qt
-            Kti = sigmat_hat @ Hti.T @ np.linalg.inv(Sti)
-            mut_hat = mut_hat + Kti @ (zti - zti_hat)
-            sigmat_hat = (np.eye(3) - Kti @ Hti) @ sigmat_hat
-            z_array.append(zti_hat)
-            S_array.append(Sti)
-        mut = mut_hat
-        sigmat = sigmat_hat
-        pzt = 1
-        for i in range(len(zt)):
-            pzt *= np.linalg.det(2 * np.pi * S_array[i]) ** 0.5 * np.exp(-0.5 * (zt[i] - z_array[i]).T @ S_array[i] @ (zt[i] - z_array[i]))
+        mu_a_t_1 = np.array(
+            [
+                mut_1.T,
+                np.array([0, 0]).T,
+                np.array([0, 0]).T
+            ]
+        )
+        sigma_a_t_1 = self.get_sigma()
+
+        sigma_points = self.sigmas.sigma_points(mu_a_t_1, sigma_a_t_1)
+        
         return mut, sigmat, pzt
 
     def get_qt(self):
@@ -168,9 +177,9 @@ def main():
         # Move and observe.
         x = motion.sample_motion_model_velocity(u, x)
         env.set_pose(x)
-        z = env.get_observations()[:2]  # no need of correspondences
-        # Estimate pose.
-        mu, sigma, p_t = ukf.localization_with_known_correspondences(mu, sigma, u, z, m)
+        z = env.get_observations(without_correspondences=True)
+        # Estimate pose
+        mu, sigma, p_t = ukf.localization(mu, sigma, u, z, m)
         # Visualize
         env.draw_step(i, len(cmds), mu, sigma)
 
