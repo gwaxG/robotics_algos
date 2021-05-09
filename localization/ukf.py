@@ -12,7 +12,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as Rot
 
 
-class SigmaPoints:
+class Support:
     def __init__(self, n, alpha=0.1, beta=2., kappa=1.):
         self.n = n
         self.alpha = alpha
@@ -23,13 +23,12 @@ class SigmaPoints:
         self._compute_weights()
 
     def sigma_points(self, x, P):
-
         if self.n != np.size(x):
             raise ValueError("expected size(x) {}, but size is {}".format(
                 self.n, np.size(x)))
 
         n = self.n
-
+        
         if np.isscalar(x):
             x = np.asarray([x])
 
@@ -46,7 +45,7 @@ class SigmaPoints:
         for k in range(n):
             sigmas[k+1] = self.subtract(x, -U[k])
             sigmas[n+k+1] = self.subtract(x, U[k])
-
+        print(sigmas)
         return sigmas
 
     def _compute_weights(self):
@@ -62,7 +61,7 @@ class SigmaPoints:
 class UKF:
     def __init__(self, motion, dt=1.0):
         L = 7  # state, control and observation dimensions
-        self.sigmas = SigmaPoints(L)
+        self.sigmas = Support(L)
         self.motion = motion
         self.alpha = motion.get_alpha()
         self.dt = dt
@@ -72,10 +71,22 @@ class UKF:
         ]) ** 2
 
     def get_sigma(self, sigma_t, m_t, q_t):
-        z1 = np.zeros((len(sigma_t), len(sigma_t)), dtype=float)
-        z2 = np.zeros((len(m_t), len(m_t)), dtype=float)
-        z3 = np.zeros((len(q_t), len(q_t)), dtype=float)
-        return np.asarray(np.bmat([[sigma_t, z2, z3], [z1, m_t, z3], [z1, z2, q_t]]))
+        l1 = len(sigma_t)
+        l2 = len(m_t)
+        l3 = len(q_t)
+        l = l1 + l2 + l3
+        z = np.zeros((l1, l - l1), dtype=float)
+        z21 = np.zeros((l2, l1), dtype=float)
+        z22 = np.zeros((l2, l3), dtype=float)
+        return np.asarray(np.bmat([[sigma_t, z], [z21, m_t, z22], [z21, z22, q_t]]))
+
+    def pass_points(self, points, ut):
+        passages  = []
+        for point in points:
+            x = point[:3]
+            u = point[3:5]
+            passages.append(self.motion.sample_motion_model_velocity(x, u))
+        return np.array(passages)
 
     def localization(self, mut_1, sigmat_1, ut, zt, m):
         """
@@ -90,37 +101,38 @@ class UKF:
         :param m: map (knowledge about coordinates of landmarks)
         :return:
         """
+        # data preparation
         dt = self.dt
         vt, wt = ut
         theta = mut_1[2]
+        # line 2
         Mt = np.array([
             [self.alpha[0] * vt**2 + self.alpha[1] * wt ** 2, 0],
             [0, self.alpha[2] * vt**2 + self.alpha[3] * wt ** 2]
         ])
-        if wt != 0:
-            mut_hat = mut_1 + np.array([
-                -vt / wt * np.sin(theta) + vt / wt * np.sin(theta + wt * dt),
-                vt / wt * np.cos(theta) - vt / wt * np.cos(theta + wt * dt),
-                wt * dt
-            ])
-        else:
-            mut_hat = mut_1 + np.array([
-                vt * np.cos(theta) * dt,
-                vt * np.sin(theta) * dt,
-                0
-            ])
+        # line 3
         Qt = self.qt
-        mu_a_t_1 = np.array(
-            [
-                mut_1.T,
-                np.array([0, 0]).T,
-                np.array([0, 0]).T
-            ]
-        )
-        sigma_a_t_1 = self.get_sigma()
+        # line 4
+        mu_a_t_1 = np.array([mut_1.tolist() + ut.tolist() + zt.tolist()])
+        # line 5
+        sigma_a_t_1 = self.get_sigma(sigmat_1, Mt, Qt)
 
+        # Generate sigma points
+        # line 6
         sigma_points = self.sigmas.sigma_points(mu_a_t_1, sigma_a_t_1)
         
+        # Pass sigma points through motion model and compute Gaussian statistics
+        # line 7
+        khi_x_t_hat = self.pass_points(sigma_points, ut)
+        exit()
+
+        # predict step
+        # Predict observations at sigma points and compute Gaussian statistics
+        # line 10
+
+        # update step
+        # Update mean and covariance
+
         return mut, sigmat, pzt
 
     def get_qt(self):
@@ -183,6 +195,22 @@ def main():
         # Visualize
         env.draw_step(i, len(cmds), mu, sigma)
 
+def test():
+    dt = 0.1
+    motion = MotionModels(dt, distribution="normal")
+    ukf = UKF(motion, dt)
+    mu = np.array([5., 1., 0.])
+    sigma = np.array([
+        [10, 0, 0], 
+        [0, 10, 0],
+        [0, 0, 10],
+    ])
+    u = np.array([1.0, 0.1])
+    z = np.array([4.0, np.pi/2])
+    m = np.array([[5.0, 5.0]])
+    mu, sigma, p_t = ukf.localization(mu, sigma, u, z, m)
+    print(mu, sigma)
 
 if __name__ == "__main__":
-    main()
+    # main()
+    test()

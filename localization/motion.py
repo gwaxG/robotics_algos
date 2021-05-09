@@ -108,9 +108,9 @@ class MotionModels:
 
     def sample_motion_model_velocity(self, x, u):
         if u[1] != 0:
-            return self.circular_movement(u, x)
+            return self.circular_movement(x, u)
         else:
-            return self.linear_movement(u, x)
+            return self.linear_movement(x, u)
 
     def sample_normal_distribution(self, b2):
         b = b2 ** 0.5
