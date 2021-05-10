@@ -119,6 +119,12 @@ class UKF:
             z += z_t_av[i][0] * self.sigmas.Wm[i]
         return z
 
+    def estimate_uncertainty_ellipse(self, z_av, z_hat):
+        s = np.zeros(z_hat.shape)
+        for p in range(z_hat):
+            
+        return s
+
     def localization(self, mut_1, sigmat_1, ut, zt, m):
         """
         The unscented Kalman filter (EKF) localization algorithm, formulated here
@@ -166,7 +172,7 @@ class UKF:
         # line 11
         z_t_hat = self.estimate_obs(z_t_av)
         # line 12 :: uncertainty ellipse
-        s_t = self.estimate_uncertainty ellipse()
+        s_t = self.estimate_uncertainty_ellipse(z_t_av, z_t_hat)
         exit()
         # line 13
         # update step
