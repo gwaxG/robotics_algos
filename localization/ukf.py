@@ -45,7 +45,6 @@ class Support:
         for k in range(n):
             sigmas[k+1] = self.subtract(x, -U[k])
             sigmas[n+k+1] = self.subtract(x, U[k])
-        print(sigmas)
         return sigmas
 
     def _compute_weights(self):
@@ -69,6 +68,10 @@ class UKF:
             10.,
             np.deg2rad(1.0)
         ]) ** 2
+        self.get_observations = None
+
+    def set_obs(self, f):
+        self.get_observations = f
 
     def get_sigma(self, sigma_t, m_t, q_t):
         l1 = len(sigma_t)
@@ -87,6 +90,34 @@ class UKF:
             u = point[3:5]
             passages.append(self.motion.sample_motion_model_velocity(x, u))
         return np.array(passages)
+
+
+    def estimate_mean(self, points):
+        mu = np.zeros(3)
+        for i, p in enumerate(points):
+            mu += p * self.sigmas.Wm[i]
+        return mu     
+
+    def estimate_sigma(self, khi, mu):
+        sigma = np.zeros((3,3))
+        for i in range(len(khi)):
+            sigma += self.sigmas.Wc[i] * (khi[i] - mu) * (khi[i] - mu).T
+        return sigma
+
+    def pass_observations(self, poses, sigma_points):
+        z = []
+        for i in range(len(sigma_points)):
+            # last two points
+            p = poses[i]
+            zt = sigma_points[i][5:]
+            z.append(self.get_observations(True, p)+zt)
+        return np.array(z)
+
+    def estimate_obs(self, z_t_av):
+        z = np.zeros(len(z_t_av[0][0]))
+        for i in range(len(z_t_av)):
+            z += z_t_av[i][0] * self.sigmas.Wm[i]
+        return z
 
     def localization(self, mut_1, sigmat_1, ut, zt, m):
         """
@@ -113,7 +144,7 @@ class UKF:
         # line 3
         Qt = self.qt
         # line 4
-        mu_a_t_1 = np.array([mut_1.tolist() + ut.tolist() + zt.tolist()])
+        mu_a_t_1 = np.array([list(mut_1) + [0, 0, 0, 0]])
         # line 5
         sigma_a_t_1 = self.get_sigma(sigmat_1, Mt, Qt)
 
@@ -124,15 +155,24 @@ class UKF:
         # Pass sigma points through motion model and compute Gaussian statistics
         # line 7
         khi_x_t_hat = self.pass_points(sigma_points, ut)
-        exit()
-
+        # line 8
+        mu_t_hat = self.estimate_mean(khi_x_t_hat)
+        # line 9
+        sigma_t_hat = self.estimate_sigma(khi_x_t_hat, mu_t_hat)
         # predict step
         # Predict observations at sigma points and compute Gaussian statistics
         # line 10
-
+        z_t_av = self.pass_observations(khi_x_t_hat, sigma_points)
+        # line 11
+        z_t_hat = self.estimate_obs(z_t_av)
+        # line 12 :: uncertainty ellipse
+        s_t = self.estimate_uncertainty ellipse()
+        exit()
+        # line 13
         # update step
         # Update mean and covariance
-
+        # line 17
+        # line 18
         return mut, sigmat, pzt
 
     def get_qt(self):
@@ -199,17 +239,19 @@ def test():
     dt = 0.1
     motion = MotionModels(dt, distribution="normal")
     ukf = UKF(motion, dt)
+    qt = ukf.get_qt()
+    env = Env(*[5., 1., 0.], landmarks_num=1, qt=qt)
+    ukf.set_obs(env.get_observations)
     mu = np.array([5., 1., 0.])
     sigma = np.array([
-        [10, 0, 0], 
-        [0, 10, 0],
-        [0, 0, 10],
+        [1, 0, 0], 
+        [0, 1, 0],
+        [0, 0, 1],
     ])
     u = np.array([1.0, 0.1])
-    z = np.array([4.0, np.pi/2])
-    m = np.array([[5.0, 5.0]])
-    mu, sigma, p_t = ukf.localization(mu, sigma, u, z, m)
-    print(mu, sigma)
+    z = env.get_observations(without_correspondences=True, pose=[])
+    m = env.get_landmarks()
+    mu, sigma, _ = ukf.localization(mu, sigma, u, z, m)
 
 if __name__ == "__main__":
     # main()

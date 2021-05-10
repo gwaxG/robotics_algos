@@ -135,30 +135,31 @@ class Env:
                     lineType)
         return img
 
-    def get_observations(self, without_correspondences=False):
-        p = self.robot_pose
+    def get_observations(self, without_correspondences=False, pose=[]):
+        if pose == []:
+            p = self.robot_pose
+        else:
+            p = pose
         z = []
         # precision of distance measurement
         for i, lm in enumerate(self.landmarks):
             r = ((lm[0]-p[0])**2+(lm[1]-p[1])**2) ** 0.5 + np.random.normal(0, self.qt[0][0]**0.5)
             phi = np.arctan2((lm[1]-p[1]), (lm[0]-p[0])) + np.random.normal(0, self.qt[1][1]**0.5)
-            point = (
-                int(lm[0] - r * np.cos(phi)),
-                int(lm[1] - r * np.sin(phi))
-            )
-            self.measurment_points.append(point)
-            self.lines.append(
-                [
-                    (
-                        int(p[0]),
-                        int(p[1])
-                    ),
-                    (
-                        int(p[0] + r * np.cos(phi)),
-                        int(p[1] + r * np.sin(phi))
-                    )
-                ]
-            )
+            # point = [int(lm[0] - r * np.cos(phi)), int(lm[1] - r * np.sin(phi))]
+            if pose != []:
+                # self.measurment_points.append(point)
+                self.lines.append(
+                    [
+                        (
+                            int(p[0]),
+                            int(p[1])
+                        ),
+                        (
+                            int(p[0] + r * np.cos(phi)),
+                            int(p[1] + r * np.sin(phi))
+                        )
+                    ]
+                )
             phi = phi - p[2]  # -theta
             if without_correspondences:
                 z.append([r, phi])
