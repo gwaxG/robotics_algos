@@ -12,7 +12,7 @@ class MotionModels:
         self.dt = dt
         self.distribution = distribution
         # noises
-        self.a = [0.001 for i in range(6)]
+        self.a = [0.005 for i in range(6)]
 
     def get_alpha(self):
         return self.a
@@ -43,16 +43,22 @@ class MotionModels:
     def prob_triangular_distribution(self, a, b2):
         return triang(a, b2).pdf(0)
 
-    def circular_movement(self, x, u):
+    def circular_movement(self, x, u, noise):
         if self.distribution == "normal":
             sample = self.sample_normal_distribution
         elif self.distribution == "triangular":
             sample = self.sample_triangular_distribution
         else:
             raise(NotImplemented())
-        v_hat = u[0] + sample(self.a[0] * u[0]**2 + self.a[1] * u[1]**2)
-        w_hat = u[1] + sample(self.a[2] * u[0] ** 2 + self.a[3] * u[1] ** 2)
-        gamma_hat = sample(self.a[4] * u[0] ** 2 + self.a[5] * u[1] ** 2)
+        if noise:
+            v_hat = u[0] + sample(self.a[0] * u[0]**2 + self.a[1] * u[1]**2)
+            w_hat = u[1] + sample(self.a[2] * u[0] ** 2 + self.a[3] * u[1] ** 2)
+            gamma_hat = sample(self.a[4] * u[0] ** 2 + self.a[5] * u[1] ** 2)
+        else:
+            v_hat = u[0]
+            w_hat = u[1]
+            gamma_hat = 0.
+
         x_ = [0, 0, 0]
         # to prevent division by zero
         if w_hat == 0.:
@@ -66,14 +72,18 @@ class MotionModels:
         #    x_[2] = np.pi + (x_[2] + np.pi)
         return x_
 
-    def linear_movement(self, x, u):
+    def linear_movement(self, x, u, noise):
         if self.distribution == "normal":
             sample = self.sample_normal_distribution
         elif self.distribution == "triangular":
             sample = self.sample_triangular_distribution
         else:
             raise(NotImplemented())
-        v_hat = u[0] + sample(self.a[0] * u[0]**2)
+
+        if noise:
+            v_hat = u[0] + sample(self.a[0] * u[0]**2)
+        else:
+            v_hat = u[0]
 
         x_ = [
             x[0] + v_hat * np.cos(x[2]),
@@ -106,11 +116,12 @@ class MotionModels:
         else:
             return self.linear_movement_jacobian(x, u)
 
-    def sample_motion_model_velocity(self, x, u):
+    def sample_motion_model_velocity(self, x, u, noise=True):
+        # Noise helps to model real movement, its absence can be used for dead reckoning.
         if u[1] != 0:
-            return self.circular_movement(x, u)
+            return self.circular_movement(x, u, noise)
         else:
-            return self.linear_movement(x, u)
+            return self.linear_movement(x, u, noise)
 
     def sample_normal_distribution(self, b2):
         b = b2 ** 0.5

@@ -5,7 +5,7 @@ import cv2
 import sys
 import random
 import time
-from feature_env import Env
+from environment import Env
 from motion import MotionModels
 import numpy as np
 from scipy.spatial.transform import Rotation as Rot
@@ -16,12 +16,7 @@ class EKF:
         self.motion = motion
         self.alpha = motion.get_alpha()
         self.dt = dt
-        self.qt = np.diag([
-            10.,
-            np.deg2rad(1.0),  # variance of yaw angle
-            1
-        ]) ** 2
-        # self.qt = np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1]])
+        self.qt = None
 
     def localization_with_known_correspondences(self, mut_1, sigmat_1, ut, zt, ct, m):
         """
@@ -127,55 +122,56 @@ def commands():
     :return: list of commands
     """
     u = []
-    for i in range(600):
-        u.append([5, 0.05])
+    for i in range(25):
+        u.append([1, -0.1])
+    for i in range(15):
+        u.append([1, 0.])
+    for i in range(15):
+        u.append([1, 0.1])
     return u
 
 
 def main():
-    landmarks_num = 1
-    try:
-        landmarks_num = int(sys.argv[1])
-    except Exception:
-        print("You did not entered number of landmarks. Default: 1.")
-
-    dt = 0.1
-    # initialization
-    initial_pose = [400, 200, 0]
+    # INITIALIZATION
+    env = Env()
     # initial pose estimate
-    mu = initial_pose
-    # initial real pose
-    x = initial_pose
+    pose_initial = [100, 100, 0]
+    mu = pose_initial
     # initial variance
     sigma = np.array([
         [10, 0, 0],
         [0, 10, 0],
         [0, 0, 10],
     ])
+    # add starting points for trajectories
+    env.add_real(pose_initial)
+    env.add_dead(pose_initial)
+    env.add_estimate(mu, sigma)
     # motion model
+    dt = 1.0
     motion = MotionModels(dt, distribution="normal")
     # localization algorithm
     ekf = EKF(motion, dt)
-    # observation noise
-    qt = ekf.get_qt()
-    # environment
-    env = Env(*initial_pose, landmarks_num=landmarks_num, qt=qt)
+    ekf.set_qt(env.get_qt())
     # command list
     cmds = commands()
     # correspondences of sys.argv[1] landmarks
     c = [i for i in range(len(env.get_landmarks()))]
     # map
     m = env.get_landmarks()
-    # iterate over command list
+    # MOVING
     for i, u in enumerate(cmds):
         # Move and observe.
-        x = motion.sample_motion_model_velocity(u, x)
-        env.set_pose(x)
+        x_real_prev = env.get_real_pose()
+        x_dead_prev = env.get_dead_pose()
+        x_real = motion.sample_motion_model_velocity(x_real_prev, u)
+        x_dead = motion.sample_motion_model_velocity(x_dead_prev, u, noise=False)
+        env.add_real(x_real)
+        env.add_dead(x_dead)
         z = env.get_observations()
-        # Estimate pose.
         mu, sigma, p_t = ekf.localization_with_known_correspondences(mu, sigma, u, z, c, m)
-        # Visualize
-        env.draw_step(i, len(cmds), mu, sigma)
+        env.add_estimate(mu, sigma)
+    env.draw()
 
 
 if __name__ == "__main__":
