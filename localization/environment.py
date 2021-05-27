@@ -5,7 +5,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 class Env:
-    def __init__(self):
+    def __init__(self, corr=True):
+        self.correspondences = corr
         # landmarks
         self.landmarks = [
             [0, 0],
@@ -27,6 +28,8 @@ class Env:
             np.deg2rad(2.0),  # variance of yaw angle
             1
         ]) ** 2
+        if not self.correspondences:
+            self.qt = self.qt[:2, :2]
 
     def get_real_pose(self):
         return self.real[-1]
@@ -95,8 +98,11 @@ class Env:
     def get_qt(self):
         return self.qt
 
-    def get_observations(self, corr=True):
-        x, y, theta = self.real[-1]
+    def get_observations(self, pose, corr=True, single=False):
+        if pose is None:
+            x, y, theta = self.real[-1]
+        else:
+            x, y, theta = pose
         observations = []
         for i, lm in enumerate(self.landmarks):
             r = ((lm[0]-x)**2+(lm[1]-y)**2) ** 0.5 + np.random.normal(0, self.qt[0][0]**0.5)
@@ -106,6 +112,8 @@ class Env:
                 observations.append([r, phi, i])
             else:
                 observations.append([r, phi])
+                if single:
+                    return observations[0]
         return observations
 
 
