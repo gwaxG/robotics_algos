@@ -28,29 +28,34 @@ class Support:
         self._compute_weights()
 
     def sigma_points(self, x, P):
+        print(P)
         if self.n != np.size(x):
             raise ValueError("expected size(x) {}, but size is {}".format(
                 self.n, np.size(x)))
 
         n = self.n
-        
+
         if np.isscalar(x):
             x = np.asarray([x])
 
-        if  np.isscalar(P):
-            P = np.eye(n)*P
+        n = np.size(x)  # dimension of problem
+
+        if np.isscalar(P):
+            P = np.eye(n) * P
         else:
             P = np.atleast_2d(P)
 
-        lambda_ = self.alpha**2 * (n + self.kappa) - n
-        U = self.sqrt((lambda_ + n)*P)
+        sigmas = np.zeros((2 * n + 1, n))
 
-        sigmas = np.zeros((2*n+1, n))
+        # implements U'*U = (n+kappa)*P. Returns lower triangular matrix.
+        # Take transpose so we can access with U[i]
+        U = self.sqrt((n + self.kappa) * P)
+
         sigmas[0] = x
-
         for k in range(n):
-            sigmas[k+1] = self.subtract(x[0], -U[k])
-            sigmas[n+k+1] = self.subtract(x[0], U[k])
+            # pylint: disable=bad-whitespace
+            sigmas[k + 1] = self.subtract(x, -U[k])
+            sigmas[n + k + 1] = self.subtract(x, U[k])
         return sigmas
 
     def _compute_weights(self):
@@ -126,7 +131,7 @@ class UKF:
         mu = np.zeros(3)
         for i, p in enumerate(points):
             mu += p * self.sigmas.Wm[i]
-        return mu     
+        return np.array([mu]).T
 
     def estimate_sigma(self, khi, mu):
         sigma = np.zeros((3,3))
@@ -140,31 +145,35 @@ class UKF:
             # last two points
             p = poses[i]
             zt = sigma_points[i][5:]
-            z = self.get_observations(p, False, True) + zt
+            z.append(self.get_observations(p, False, True) + zt)
         return np.array(z)
 
     def estimate_obs(self, z_t_av):
-        z = np.zeros(len(z_t_av))
+        z = np.zeros(len(z_t_av[0]))
         for i in range(len(z_t_av)):
             z += z_t_av[i] * self.sigmas.Wm[i]
         return z
 
     def estimate_gain_sigma(self, khi, mut, z_av, z_hat):
-        s = np.zeros(np.matmul(z_av, z_av.T).shape)
+        s = None
+
         for i in range(len(z_hat)):
-            inter = (z_av[i] - z_hat).tolist()
-            inter.append(0.)
-            inter = np.array(inter)
-            inter = np.array(inter)
-            s += self.sigmas.Wc[i] * np.matmul(khi[i] - mut, inter.T)  # modification, no .T
+            m1 = np.array([khi[i] - mut.T[0]])
+            m2 = np.array([z_av[i] - z_hat])
+            if i == 0:
+                s = self.sigmas.Wc[i] * np.dot(m1.T, m2)
+            else:
+                s += self.sigmas.Wc[i] * np.dot(m1.T, m2)
         return s
 
     def estimate_uncertainty_ellipse(self, z_av, z_hat):
-        st = np.zeros(np.matmul(z_av, z_av.T).shape)
+        st = None
         for i in range(len(z_hat)):
-            st += self.sigmas.Wc[i] * np.dot((z_av[i] - z_hat), (z_av[i] - z_hat).T)
-        print("st", st)
-        exit()
+            m = np.array([z_av[i] - z_hat])
+            if i == 0:
+                st = self.sigmas.Wc[i] * np.dot(m.T, m)
+            else:
+                st += self.sigmas.Wc[i] * np.dot(m.T, m)
         return st
 
     def localization(self, mut_1, sigmat_1, ut, zt, m):
@@ -195,16 +204,15 @@ class UKF:
         mu_a_t_1 = np.array([list(mut_1) + [0, 0, 0, 0]])
         # line 5
         sigma_a_t_1 = self.get_sigma(sigmat_1, Mt, Qt)
-
         # Generate sigma points
         # line 6
         sigma_points = self.sigmas.sigma_points(mu_a_t_1, sigma_a_t_1)
-        
         # Pass sigma points through motion model and compute Gaussian statistics
         # line 7
         khi_x_t_hat = self.pass_points(sigma_points, ut)
         # line 8
         mu_t_hat = self.estimate_mean(khi_x_t_hat)
+
         # line 9
         sigma_t_hat = self.estimate_sigma(khi_x_t_hat, mu_t_hat)
         # predict step
@@ -215,22 +223,21 @@ class UKF:
         z_t_hat = self.estimate_obs(z_t_av)
         # line 12 :: uncertainty ellipse
         s_t = self.estimate_uncertainty_ellipse(z_t_av, z_t_hat)
+
         # line 13
         sigma_t_xz = self.estimate_gain_sigma(khi_x_t_hat, mu_t_hat,  z_t_av, z_t_hat)
         # update step
         # Update mean and covariance
         # line 14
-        print(sigma_t_xz.shape)
-        print(s_t)
         K_t = np.matmul(sigma_t_xz, np.linalg.inv(s_t))
-        exit()
         # line 15
+        mu_t = mu_t_hat.T[0] + K_t @ (zt - z_t_hat)
         # line 16
+        sigma_t = sigma_t_hat + - K_t @ s_t @ K_t.T
         # line 17
-
+        pzt = 0.
         # line 18
-        mut, sigmat, pzt = [0,0,0]
-        return mut, sigmat, pzt
+        return mu_t, sigma_t, pzt
 
     def get_qt(self):
         return self.qt
@@ -273,7 +280,7 @@ def main():
     # motion model
     dt = 1.0
     motion = MotionModels(dt, distribution="normal")
-    # localization algorithm
+    # localization algorithm initialization
     ukf = UKF(motion, dt)
     ukf.set_qt(env.get_qt())
     ukf.set_obs(env.get_observations)
