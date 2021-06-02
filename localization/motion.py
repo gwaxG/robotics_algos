@@ -32,6 +32,8 @@ class MotionModels:
             prob = self.prob_normal_distribution
         elif self.distribution == "triangular":
             prob = self.prob_triangular_distribution
+        else:
+            raise Exception("Distribution is not defined.")
         prob1 = prob(u[0]-v_hat, self.a[0] * u[0]**2 + self.a[1] * u[1]**2)
         prob2 = prob(u[1] - w_hat, self.a[2] * u[0] ** 2 + self.a[3] * u[1] ** 2)
         prob3 = prob(gamma_hat, self.a[4] * u[0] ** 2 + self.a[5] * u[1] ** 2)

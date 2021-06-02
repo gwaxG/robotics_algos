@@ -10,9 +10,14 @@ class Env:
         # landmarks
         self.landmarks = [
             [0, 0],
-            [200, 100],
-            [0, 200],
+            [0, 50],
+            [50, 0],
         ]
+        # limits
+        self.x_min = 0
+        self.x_max = 50
+        self.y_min = 0
+        self.y_max = 50
         # estimated movement
         self.estimation = []
         # variance
@@ -24,8 +29,8 @@ class Env:
         self.dead = []
         # observation noise
         self.qt = np.diag([
-            10.,
-            np.deg2rad(2.0),  # variance of yaw angle
+            5.0,
+            np.deg2rad(5),  # variance of yaw angle
             1
         ]) ** 2
         if not self.correspondences:
@@ -115,22 +120,3 @@ class Env:
                 if single:
                     return observations[0]
         return observations
-
-
-def main():
-    e = Env()
-    p0 = [100, 10, 0]
-    p1 = [100, 0, 0]
-    p2 = [100, -10, 0]
-    for i in range(20):
-        p = [p0[0] + i, p0[1] + i, 0]
-        e.add_real(p)
-        p = [p1[0] + i, p1[1] + i, 0]
-        e.add_dead(p)
-        p = [p2[0] + i, p2[1] + i, 0]
-        e.add_estimate(p, [])
-    e.draw()
-
-
-if __name__ == "__main__":
-    main()

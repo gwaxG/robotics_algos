@@ -122,12 +122,12 @@ def commands():
     :return: list of commands
     """
     u = []
-    for i in range(25):
-        u.append([1, -0.1])
-    for i in range(15):
-        u.append([1, 0.])
-    for i in range(15):
-        u.append([1, 0.1])
+    for i in range(20):
+        u.append([0.5, -0.1])
+    for i in range(1):
+        u.append([0.5, 0.])
+    for i in range(10):
+        u.append([0.5, 0.1])
     return u
 
 
@@ -135,7 +135,7 @@ def main():
     # INITIALIZATION
     env = Env()
     # initial pose estimate
-    pose_initial = [100, 100, 0]
+    pose_initial = [25, 25, 0]
     mu = pose_initial
     # initial variance
     sigma = np.array([
@@ -168,7 +168,7 @@ def main():
         x_dead = motion.sample_motion_model_velocity(x_dead_prev, u, noise=False)
         env.add_real(x_real)
         env.add_dead(x_dead)
-        z = env.get_observations()
+        z = env.get_observations(None)
         mu, sigma, p_t = ekf.localization_with_known_correspondences(mu, sigma, u, z, c, m)
         env.add_estimate(mu, sigma)
     env.draw()
