@@ -17,30 +17,15 @@ class MCL:
     def __init__(self, initial_pose, limits, motion, dt=1.0):
         self.N = 100
         self.motion = motion
-        self.alpha = motion.get_alpha()
         self.dt = dt
         self.qt = None
-        self.cnt = 1
         self.observation_sampler = None
-        self.px, self.pw = self.generate_particles(initial_pose, limits)
-
-    def generate_particles(self, initial_pose, limits):
-        pts = []
-        for i in range(self.N):
-            pts.append(initial_pose)
-        wm = np.array([1./self.N for _ in range(self.N)])
-        return np.array(pts), wm
-
-    def variance_from_particles(self):
-        pass
-
-    def pose_from_particles(self):
-        pass
+        self.px = np.array([initial_pose for i in range(self.N)])
+        self.pw = np.array([1./self.N for _ in range(self.N)])
 
     def sample_probability(self, x, z_star):
         prob = 1
         observations = self.observation_sampler(x, corr=False, single=False)
-
         for i, [obs_, z_mean] in enumerate(zip(observations, z_star)):
             obs = np.array(obs_).T
             prob *= multivariate_normal.pdf(obs, mean=z_mean, cov=self.qt)
@@ -86,16 +71,11 @@ class MCL:
             index = n_pred.index(np.max(n_pred))
             n_pred[index] -= 1
             x_new.append(x_pred[index])
-        # Assign new particles
+        # reassign new particles
         self.px = x_new
         # Reset weights
         self.pw = np.array([1./self.N for _ in range(self.N)])
-        self.cnt += 1
-
         return x_est, p_est
-
-    def get_qt(self):
-        return self.qt
 
     def set_qt(self, qt):
         self.qt = qt
