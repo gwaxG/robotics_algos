@@ -1,2 +1,5 @@
 # robotics_algos
-Implementation of main mobile robotics algroithms
+Mobile robotics algorithms.
+Localization:  
+* Extended Kalman filter 
+* Monte-Carlo localization
