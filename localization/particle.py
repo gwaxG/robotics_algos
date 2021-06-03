@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import cv2
-import sys
-import random
-import time
+
 from sklearn import preprocessing
 from environment import Env
 from motion import MotionModels
 import numpy as np
-import math
 from scipy.stats import multivariate_normal
 
 
