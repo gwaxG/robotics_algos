@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import cv2
-import sys
-import random
-import time
 from environment import Env
 from motion import MotionModels
 import numpy as np
-from scipy.spatial.transform import Rotation as Rot
 
 
 class EKF:
